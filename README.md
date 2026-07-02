@@ -1,11 +1,14 @@
 # PrepRoute — Test Management App
 
-A React admin app for creating, editing, and publishing tests. Built to match the PrepRoute Figma flow: **Login → Dashboard → Create Test → Add Questions → Preview & Publish**.
+A React app for creating tests, adding questions, and publishing them.
+
+**Flow:** Login → Dashboard → Create/Edit Test → Add Questions → Preview & Publish
 
 ## Tech stack
 
 - React 19 + TypeScript + Vite
 - Material UI (MUI)
+- Redux Toolkit (in-memory cache + background API refresh)
 - React Router, React Hook Form, Axios
 
 ## Getting started
@@ -17,98 +20,157 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-**Build for production**
-
 ```bash
-npm run build
-npm run preview
+npm run build    # production build
+npm run preview  # preview build locally
+npm run deploy   # deploy to GitHub Pages
 ```
 
-## API
+## API & auth
 
-Staging backend is proxied in development via `vite.config.ts`:
+Development proxies `/api` to the staging backend (`vite.config.ts`).
 
-- Dev: `/api` → `https://admin-moderator-backend-staging.up.railway.app/api`
-- Auth: JWT stored in `localStorage` after login
+- Login: `POST /auth/login` with `userId` and `password`
+- JWT is stored in `localStorage` (`token`, `user`)
+- All other requests send `Authorization: Bearer <token>`
+- On `401`, the user is redirected to login
 
-**Test login**
+**Test credentials**
 
-| Field    | Value        |
-|----------|--------------|
+| Field    | Value          |
+|----------|----------------|
 | User ID  | `vedant-admin` |
 | Password | `vedant123`    |
 
-## App flow
+## Routes
 
-| Route | Page | Description |
-|-------|------|-------------|
-| `/login` | Login | Split-screen login |
-| `/dashboard` | Dashboard | List, search, filter, paginate tests |
-| `/tests/create` | Create Test | Test metadata form |
-| `/tests/:id/edit` | Edit Test | Same form, pre-filled |
-| `/tests/:id/questions` | Add Questions | Question editor + sidebar |
-| `/tests/:id/preview` | Preview & Publish | Confirm & publish / schedule |
+| Route | Page |
+|-------|------|
+| `/login` | Login |
+| `/dashboard` | Test list |
+| `/tests/create` | Create test |
+| `/tests/:id/edit` | Edit test |
+| `/tests/:id/questions` | Add questions |
+| `/tests/:id/preview` | Preview & publish |
 
-## Create Test
+---
 
-Required fields include **Subject**, **Topic**, **Sub Topic** (at least one each), marking scheme, and duration.
+## How it works
 
-- **Chapterwise** / **Mock Test** tabs set test type
-- **Total Marks** = No of Questions × Correct Answer (auto-calculated)
+### 1. Login
 
-## Add Questions
+- Form with **User ID** and **Password** (both required)
+- On success: token saved, redirect to dashboard
+- On failure: error message shown on the form
 
-- Left **Question creation** sidebar: navigate slots, green check = complete
-- **Question Editor**: rich text toolbar (bold, italic, lists, link, image)
+### 2. Dashboard
+
+Loads all tests from `GET /tests`.
+
+- Table shows: name, subject, type, status, created date, marks/questions count
+- **Search** by name or subject
+- **Filter** by status (all / draft / live) and type (chapterwise / PYQ / mock)
+- **Pagination** (5, 10, or 25 rows per page)
+- **Create New Test** → `/tests/create`
+
+**Row actions**
+
+| Button | What it does |
+|--------|----------------|
+| Edit | Opens edit test form |
+| Quiz | Opens add questions page |
+| Delete | Sets test status to `unpublished` (with confirm dialog) |
+
+**Caching:** Tests are stored in Redux. Revisiting the dashboard shows cached data immediately while the API refreshes in the background (no full-page loader on return visits).
+
+### 3. Create / Edit Test
+
+Form fields:
+
+- Test name (required)
+- Subject — dropdown from `GET /subjects`
+- Test type — Chapterwise, PYQ, or Mock Test
+- Topics — multi-select from `GET /topics/subject/:subjectId`
+- Sub-topics — multi-select from `POST /sub-topics/multi-topics`
+- Difficulty — Easy / Medium / Difficult
+- Marking scheme — wrong, unattempted, correct marks
+- Duration (minutes), number of questions, total marks (auto-calculated)
+
+**How save works**
+
+- **Next** → `POST /tests` (create) or `PUT /tests/:id` (edit) with `status: draft` → navigates to Add Questions
+- Edit mode loads test from Redux cache first, then refreshes from `GET /tests/:id`
+
+### 4. Add Questions
+
+Shows a **test summary card** at the top. Left **sidebar** lists question slots (green check = complete).
+
+**Per question**
+
+- Rich text question (bold, italic, underline, lists, link, image via modal/upload)
 - Four MCQ options with radio for correct answer
-- **Next** saves progress slot-by-slot; last question → **Save & Preview**
-- **Publish** saves all complete questions and opens preview
+- Optional explanation, difficulty, topic, sub-topic
 
-### CSV import
+**Navigation**
 
-Click **CSV** to bulk-fill questions. Supported headers (flexible naming):
+- **Next** — moves to the next question slot
+- Last question **Next** → saves and opens preview
+- **Publish** (top) — saves all complete questions and opens preview
+- **Exit Test Creation** — returns to dashboard (test draft is kept; unsaved question edits in the browser are not sent to the API)
+
+**Saving questions**
+
+- Complete questions are sent to `POST /questions/bulk` with `test_id` and subject
+- Existing questions are loaded via `POST /questions/fetchBulk` when opening the page
+- Errors stay visible in a sticky alert until the user acts again
+
+**CSV import**
+
+Upload a `.csv` file to fill question slots. Example:
 
 ```csv
 question,option1,option2,option3,option4,correct_option,explanation,difficulty
 "What is 2+2?",4,3,5,6,4,"Basic addition",easy
 ```
 
-**Correct answer** can be:
+Supports flexible column names, tab/semicolon delimiters, and correct answer as `option1`–`option4`, `1`–`4`, `A`–`D`, or matching option text.
 
-- Option key: `option1` … `option4`
-- Position: `1`–`4` or `A`–`D`
-- **Option text**: e.g. `4` selects the option whose value is `4`
+### 5. Preview & Publish
 
-Also supports `Option 1`, `Option A`, tab/semicolon delimiters.
+Loads test from cache/API and questions via `fetchBulk`.
 
-## Preview & Publish
+- Test summary card with **Edit** → edit test page
+- **Publish Now** or **Schedule Publish** (date + time)
+- **Live Until** — always, 1–4 weeks, 1 month, or custom end date/time
+- **Confirm** → `PUT /tests/:id` with `status: live` (and schedule/expiry when set)
+- Success screen, then redirect to dashboard after 2 seconds
+- Publish is enabled when all configured questions are saved
 
-- Test summary card + question sidebar
-- **Publish Now** or **Schedule Publish** (date/time)
-- **Live Until**: Always Available, 1–4 weeks, 1 month, or Custom Duration
-- **Confirm** publishes the test (status → `live`)
+---
+
+## Redux store
+
+| Slice | Purpose |
+|-------|---------|
+| `auth` | User and token (synced to `localStorage`) |
+| `tests` | Test list + per-id cache; `fetchTests`, `fetchTestById` |
+| `testFlow` | Current test during the create/edit flow |
+
+`AppLayout` prefetches tests after login. Logout clears the test cache.
 
 ## Project structure
 
 ```
 src/
-├── api/              # Axios client & endpoints
+├── api/              # Axios client & API functions
+├── assets/           # logo, auth image, favicon, icons
 ├── components/
-│   ├── layout/       # App shell, sidebar, auth guard
-│   ├── login/        # Login page
+│   ├── layout/       # Navbar, drawer, protected routes
+│   ├── login/
 │   ├── questions/    # Sidebar, summary card, rich text editor
-│   └── ui/           # Logo, breadcrumb, badges
-├── context/          # Auth & test flow state
-├── pages/            # Route pages
-├── utils/            # API errors, CSV parser
-└── theme.ts          # Brand colors & MUI theme
+│   └── ui/           # Logo, breadcrumb, status badge
+├── pages/            # Dashboard, CreateTest, AddQuestions, PreviewPublish
+├── store/            # Redux store, slices, hooks
+├── utils/            # API error parsing, CSV parser
+└── theme.ts
 ```
-
-## Scripts
-
-| Command | Purpose |
-|---------|---------|
-| `npm run dev` | Start dev server |
-| `npm run build` | Typecheck + production build |
-| `npm run preview` | Preview production build |
-| `npm run lint` | Run oxlint |

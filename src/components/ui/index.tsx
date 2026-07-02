@@ -1,8 +1,9 @@
 import { Box, Chip, Stack, Typography } from '@mui/material'
 import { colors } from '../../theme'
+import logoImg from '../../assets/logo.png'
 
 export function Logo({ height = 28 }: { height?: number }) {
-  return <Box component="img" src="/logo.png" alt="PrepRoute" sx={{ height, width: 'auto' }} />
+  return <Box component="img" src={logoImg} alt="PrepRoute" sx={{ height, width: 'auto' }} />
 }
 
 export function StatusBadge({ status }: { status?: string | null }) {

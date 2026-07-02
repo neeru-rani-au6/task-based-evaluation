@@ -116,12 +116,12 @@ export default function QuestionSidebar({ total, currentIndex, completed, onSele
                 py: 1,
                 borderRadius: 2,
                 cursor: 'pointer',
-                border: '1px solid',
-                borderColor: isDone ? '#86efac' : colors.line,
+                border: isActive
+                  ? `2px solid ${isDone ? '#22c55e' : colors.brand500}`
+                  : `1px solid ${isDone ? '#86efac' : colors.line}`,
+                bgcolor: isDone ? '#f0fdf4' : '#fff',
                 color: isDone ? '#16a34a' : colors.muted,
                 fontWeight: isActive ? 600 : 400,
-                outline: isActive ? `2px solid ${isDone ? '#22c55e' : colors.brand500}` : 'none',
-                outlineOffset: isActive ? 1 : 0,
                 '&:hover': {
                   bgcolor: isDone ? '#ecfdf5' : '#f9fafb',
                 },

@@ -1,7 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { CssBaseline, ThemeProvider } from '@mui/material'
-import { AuthProvider, useAuth } from './context/AuthContext'
-import { TestProvider } from './context/TestContext'
+import { useAuth } from './store/hooks'
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import AppLayout from './components/layout/AppLayout'
 import LoginPage from './components/login/login'
@@ -44,13 +43,9 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AuthProvider>
-        <TestProvider>
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
-        </TestProvider>
-      </AuthProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
     </ThemeProvider>
   )
 }

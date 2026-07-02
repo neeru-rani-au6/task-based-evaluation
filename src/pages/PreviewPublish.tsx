@@ -16,7 +16,10 @@ import {
 } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
-import { fetchBulkQuestions, getTestById, updateTest } from '../api/endpoints'
+import { fetchBulkQuestions, updateTest } from '../api/endpoints'
+import { useAppDispatch } from '../store/hooks'
+import { fetchTestById } from '../store/slices/testsSlice'
+import { store } from '../store'
 import QuestionSidebar from '../components/questions/QuestionSidebar'
 import TestSummaryCard from '../components/questions/TestSummaryCard'
 import { colors } from '../theme'
@@ -45,9 +48,11 @@ function prettyType(type?: string) {
 export default function PreviewPublishPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [test, setTest] = useState<Test | null>(null)
+  const dispatch = useAppDispatch()
+  const cachedOnMount = id ? store.getState().tests.byId[id] : undefined
+  const [test, setTest] = useState<Test | null>(cachedOnMount ?? null)
   const [questions, setQuestions] = useState<Question[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !cachedOnMount)
   const [publishing, setPublishing] = useState(false)
   const [published, setPublished] = useState(false)
   const [error, setError] = useState('')
@@ -60,26 +65,47 @@ export default function PreviewPublishPage() {
 
   useEffect(() => {
     if (!id) return
+
+    const applyTest = async (testData: Test, showLoader: boolean) => {
+      if (showLoader) setLoading(true)
+      setTest(testData)
+      if (testData.questions?.length) {
+        try {
+          const qRes = await fetchBulkQuestions(testData.questions)
+          if (qRes.data.status === 'success') setQuestions(qRes.data.data)
+        } catch {
+          setError('Failed to load questions')
+        }
+      }
+      setLoading(false)
+    }
+
     const load = async () => {
-      setLoading(true)
+      setError('')
+      const cachedTest = store.getState().tests.byId[id]
+      const hasCache = !!cachedTest
+      if (hasCache) {
+        await applyTest(cachedTest, false)
+      }
+
       try {
-        const testRes = await getTestById(id)
-        if (testRes.data.status === 'success') {
-          const testData = testRes.data.data
-          setTest(testData)
-          if (testData.questions?.length) {
-            const qRes = await fetchBulkQuestions(testData.questions)
-            if (qRes.data.status === 'success') setQuestions(qRes.data.data)
-          }
+        const result = await dispatch(fetchTestById(id))
+        if (fetchTestById.fulfilled.match(result)) {
+          await applyTest(result.payload, !hasCache)
+        } else if (!hasCache) {
+          setError('Failed to load test preview')
+          setLoading(false)
         }
       } catch {
-        setError('Failed to load test preview')
-      } finally {
-        setLoading(false)
+        if (!hasCache) {
+          setError('Failed to load test preview')
+          setLoading(false)
+        }
       }
     }
+
     load()
-  }, [id])
+  }, [id, dispatch])
 
   const totalQuestions = test?.total_questions ?? 0
   const allDone = questions.length >= totalQuestions && totalQuestions > 0
@@ -129,7 +155,7 @@ export default function PreviewPublishPage() {
     }
   }
 
-  if (loading) {
+  if (loading && !test) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />

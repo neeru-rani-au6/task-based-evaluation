@@ -15,10 +15,11 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { login as loginApi } from '../../api/endpoints'
-import { useAuth } from '../../context/AuthContext'
+import { useAuth } from '../../store/hooks'
 import { Logo } from '../ui'
 import { colors } from '../../theme'
 import { parseApiError, parseApiErrorBody } from '../../utils/apiError'
+import authImg from '../../assets/auth.png'
 
 interface LoginForm {
   userId: string
@@ -68,7 +69,7 @@ const LoginPage = () => {
           p: 6,
         }}
       >
-        <Box component="img" src="/auth.png" alt="" sx={{ maxWidth: 420, width: '100%' }} />
+        <Box component="img" src={authImg} alt="" sx={{ maxWidth: 420, width: '100%' }} />
       </Box>
 
       <Box

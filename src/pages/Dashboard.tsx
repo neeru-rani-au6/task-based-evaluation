@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -29,11 +29,12 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import QuizOutlinedIcon from '@mui/icons-material/QuizOutlined'
 import SearchIcon from '@mui/icons-material/Search'
-import { getAllTests, updateTest } from '../api/endpoints'
-import { useTestFlow } from '../context/TestContext'
+import { updateTest } from '../api/endpoints'
+import { useAppDispatch, useAppSelector, useTestFlow } from '../store/hooks'
+import { fetchTests, removeTest } from '../store/slices/testsSlice'
 import { PageHeader, StatusBadge } from '../components/ui'
 import { colors } from '../theme'
-import { parseApiError, parseApiErrorBody } from '../utils/apiError'
+import { parseApiError } from '../utils/apiError'
 import type { Test } from '../types'
 
 const STATUS_TABS = ['all', 'draft', 'live'] as const
@@ -55,33 +56,21 @@ function prettyType(type?: string) {
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
   const { setCurrentTest, clearTestFlow } = useTestFlow()
-  const [tests, setTests] = useState<Test[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const tests = useAppSelector((s) => s.tests.list)
+  const loading = useAppSelector((s) => s.tests.loading)
+  const fetchError = useAppSelector((s) => s.tests.error)
+  const [actionError, setActionError] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_TABS)[number]>('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
 
-  const fetchTests = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await getAllTests()
-      if (res.data.status === 'success') setTests(res.data.data)
-      else setError(parseApiErrorBody(res.data, 'Failed to fetch tests'))
-    } catch (err: unknown) {
-      setError(parseApiError(err, 'Failed to fetch tests'))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    fetchTests()
-  }, [fetchTests])
+    dispatch(fetchTests())
+  }, [dispatch])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
@@ -107,13 +96,17 @@ export default function DashboardPage() {
 
   const handleDelete = async (test: Test) => {
     if (!window.confirm(`Delete "${test.name}"?`)) return
+    setActionError('')
     try {
       await updateTest(test.id, { status: 'unpublished' })
-      setTests((prev) => prev.filter((t) => t.id !== test.id))
+      dispatch(removeTest(test.id))
     } catch (err: unknown) {
-      setError(parseApiError(err, 'Failed to delete test'))
+      setActionError(parseApiError(err, 'Failed to delete test'))
     }
   }
+
+  const showInitialLoader = loading && tests.length === 0
+  const error = actionError || fetchError
 
   return (
     <Stack spacing={3}>
@@ -185,7 +178,7 @@ export default function DashboardPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <TableContainer component={Paper} elevation={0} sx={{ border: `1px solid ${colors.line}`, borderRadius: 2 }}>
-        {loading ? (
+        {showInitialLoader ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
             <CircularProgress size={32} />
           </Box>
@@ -231,9 +224,9 @@ export default function DashboardPage() {
                         : '—'}
                     </TableCell>
                     <TableCell>
-                      <IconButton size="small" onClick={() => navigate(`/tests/${test.id}/preview`)}>
+                      {/* <IconButton size="small" onClick={() => navigate(`/tests/${test.id}/preview`)}>
                         <VisibilityOutlinedIcon fontSize="small" />
-                      </IconButton>
+                      </IconButton> */}
                       <IconButton
                         size="small"
                         onClick={() => {

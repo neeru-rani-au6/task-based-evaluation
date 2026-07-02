@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -25,9 +25,10 @@ import {
   bulkCreateQuestions,
   fetchBulkQuestions,
   getSubjects,
-  getTestById,
 } from '../api/endpoints'
-import { useTestFlow } from '../context/TestContext'
+import { useTestFlow, useAppDispatch } from '../store/hooks'
+import { fetchTestById } from '../store/slices/testsSlice'
+import { store } from '../store'
 import QuestionSidebar from '../components/questions/QuestionSidebar'
 import QuestionRichTextEditor, { stripHtml } from '../components/questions/QuestionRichTextEditor'
 import TestSummaryCard from '../components/questions/TestSummaryCard'
@@ -128,35 +129,50 @@ function SettingsSelect({
 export default function AddQuestionsPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
   const { setCurrentTest } = useTestFlow()
-  const [test, setTest] = useState<Test | null>(null)
-  const [drafts, setDrafts] = useState<QuestionDraft[]>([])
+  const cachedOnMount = id ? store.getState().tests.byId[id] : undefined
+  const [test, setTest] = useState<Test | null>(cachedOnMount ?? null)
+  const [drafts, setDrafts] = useState<QuestionDraft[]>(() => {
+    if (!cachedOnMount) return []
+    const total = cachedOnMount.total_questions || 1
+    return Array.from({ length: total }, () => emptyDraft())
+  })
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !cachedOnMount)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const errorRef = useRef<HTMLDivElement>(null)
+  const mainScrollRef = useRef<HTMLDivElement>(null)
+  const topAnchorRef = useRef<HTMLDivElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
 
   const { register, control, reset, getValues, setValue, formState: { errors } } = useForm<QuestionDraft>({
     defaultValues: emptyDraft(),
   })
 
+  const resetRef = useRef(reset)
+  resetRef.current = reset
+
   useEffect(() => {
     if (!id) return
-    const load = async () => {
-      setLoading(true)
-      try {
-        const res = await getTestById(id)
-        if (res.data.status !== 'success') return
-        const testData = res.data.data
-        setTest(testData)
-        setCurrentTest(testData)
 
-        const total = testData.total_questions || 1
-        let initial = Array.from({ length: total }, () => emptyDraft())
+    let cancelled = false
+    setError('')
 
-        if (testData.questions?.length) {
+    const applyTestData = async (testData: Test, showLoader: boolean) => {
+      if (cancelled) return
+      if (showLoader) setLoading(true)
+      setTest(testData)
+      setCurrentTest(testData)
+
+      const total = testData.total_questions || 1
+      let initial = Array.from({ length: total }, () => emptyDraft())
+
+      if (testData.questions?.length) {
+        try {
           const qRes = await fetchBulkQuestions(testData.questions)
+          if (cancelled) return
           if (qRes.data.status === 'success') {
             qRes.data.data.forEach((q, i) => {
               if (i < total) {
@@ -175,20 +191,89 @@ export default function AddQuestionsPage() {
               }
             })
           }
+        } catch {
+          if (!cancelled) setError('Failed to load questions')
         }
+      }
 
-        setDrafts(initial)
-        reset(initial[0])
+      if (cancelled) return
+      setDrafts(initial)
+      resetRef.current(initial[0])
+      setLoading(false)
+    }
+
+    const load = async () => {
+      const cachedTest = store.getState().tests.byId[id]
+      const hasCache = !!cachedTest
+      if (hasCache) {
+        await applyTestData(cachedTest, false)
+      }
+
+      try {
+        const result = await dispatch(fetchTestById(id))
+        if (cancelled) return
+        if (fetchTestById.fulfilled.match(result)) {
+          if (!hasCache) {
+            await applyTestData(result.payload, true)
+          } else {
+            setTest(result.payload)
+            setCurrentTest(result.payload)
+          }
+        } else if (!hasCache) {
+          setError('Failed to load test')
+          setLoading(false)
+        }
       } catch {
-        setError('Failed to load test')
-      } finally {
-        setLoading(false)
+        if (!cancelled && !hasCache) {
+          setError('Failed to load test')
+          setLoading(false)
+        }
       }
     }
+
     load()
-  }, [id, reset, setCurrentTest])
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, dispatch, setCurrentTest])
+
+  useEffect(() => {
+    if (!error) return
+    errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [error])
 
   const completed = useMemo(() => drafts.map(isDraftComplete), [drafts])
+
+  const scrollToTop = () => {
+    const scrollAll = () => {
+      topAnchorRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
+
+      if (mainScrollRef.current) {
+        mainScrollRef.current.scrollTop = 0
+      }
+
+      let parent = mainScrollRef.current?.parentElement ?? null
+      while (parent) {
+        const { overflowY } = window.getComputedStyle(parent)
+        if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollTop > 0) {
+          parent.scrollTop = 0
+        }
+        parent = parent.parentElement
+      }
+
+      window.scrollTo(0, 0)
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+    }
+
+    scrollAll()
+    requestAnimationFrame(scrollAll)
+  }
+
+  useLayoutEffect(() => {
+    scrollToTop()
+  }, [currentIndex])
 
   const saveCurrentToDrafts = (): QuestionDraft[] => {
     const values = getValues()
@@ -294,6 +379,7 @@ export default function AddQuestionsPage() {
 
       if (!subjectId) {
         setError('Could not resolve subject')
+        setSaving(false)
         return
       }
 
@@ -324,10 +410,18 @@ export default function AddQuestionsPage() {
     }
   }
 
-  if (loading || !test) {
+  if (loading && !test) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <Typography color="text.secondary">Loading question editor...</Typography>
+      </Box>
+    )
+  }
+
+  if (!test) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <Typography color="text.secondary">Test not found</Typography>
       </Box>
     )
   }
@@ -337,8 +431,8 @@ export default function AddQuestionsPage() {
   const subTopicOptions = (test.sub_topics?.length ? test.sub_topics : []).map((t) => ({ value: t, label: t }))
 
   return (
-    <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}>
-      <Box sx={{ display: { xs: 'none', lg: 'flex' } }}>
+    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%' }}>
+      <Box sx={{ display: { xs: 'none', lg: 'flex' }, flexShrink: 0 }}>
         <QuestionSidebar
           total={drafts.length}
           currentIndex={currentIndex}
@@ -347,7 +441,8 @@ export default function AddQuestionsPage() {
         />
       </Box>
 
-      <Box sx={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
+      <Box ref={mainScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+        <Box ref={topAnchorRef} />
         <Box sx={{ px: { xs: 2, md: 3 }, pt: 2, pb: 3 }}>
           <Stack spacing={2.5}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
@@ -385,7 +480,11 @@ export default function AddQuestionsPage() {
               </Box>
             </Typography>
 
-            {error && <Alert severity="error">{error}</Alert>}
+            {error && (
+              <Alert ref={errorRef} severity="error" sx={{ position: 'sticky', top: 8, zIndex: 2 }}>
+                {error}
+              </Alert>
+            )}
 
             <input
               ref={csvInputRef}

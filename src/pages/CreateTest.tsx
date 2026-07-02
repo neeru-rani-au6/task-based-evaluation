@@ -21,15 +21,16 @@ import {
   createTest,
   getSubjects,
   getSubTopicsByTopics,
-  getTestById,
   getTopicsBySubject,
   updateTest,
 } from '../api/endpoints'
-import { useTestFlow } from '../context/TestContext'
+import { useTestFlow, useAppDispatch } from '../store/hooks'
+import { fetchTestById, upsertTest } from '../store/slices/testsSlice'
+import { store } from '../store'
 import { Breadcrumb } from '../components/ui'
 import { colors } from '../theme'
 import { parseApiError, parseApiErrorBody } from '../utils/apiError'
-import type { Subject, SubTopic, Topic } from '../types'
+import type { Subject, SubTopic, Test, Topic } from '../types'
 
 interface TestForm {
   name: string
@@ -176,13 +177,17 @@ export default function CreateTestPage() {
   const { id } = useParams()
   const isEdit = !!id
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
   const { setCurrentTest } = useTestFlow()
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [topics, setTopics] = useState<Topic[]>([])
   const [subTopics, setSubTopics] = useState<SubTopic[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [loadingTest, setLoadingTest] = useState(isEdit)
+  const [loadingTest, setLoadingTest] = useState(() => {
+    if (!isEdit || !id) return false
+    return !store.getState().tests.byId[id]
+  })
 
   const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<TestForm>({
     defaultValues: {
@@ -220,49 +225,68 @@ export default function CreateTestPage() {
 
   useEffect(() => {
     if (!isEdit || !id || subjects.length === 0) return
-    setLoadingTest(true)
-    getTestById(id)
-      .then(async (r) => {
-        if (r.data.status !== 'success') return
-        const test = r.data.data
-        setCurrentTest(test)
-        const subjectMatch = subjects.find((s) => s.name === test.subject || s.id === test.subject)
-        const subjectId = subjectMatch?.id || ''
-        let topicIds: string[] = []
-        let subTopicIds: string[] = []
-        if (subjectId) {
-          const topicsRes = await getTopicsBySubject(subjectId)
-          const allTopics = topicsRes.data.data || []
-          setTopics(allTopics)
-          topicIds = (test.topics || [])
-            .map((name) => allTopics.find((t) => t.name === name || t.id === name)?.id)
+
+    const applyTestToForm = async (test: Test) => {
+      setCurrentTest(test)
+      const subjectMatch = subjects.find((s) => s.name === test.subject || s.id === test.subject)
+      const subjectId = subjectMatch?.id || ''
+      let topicIds: string[] = []
+      let subTopicIds: string[] = []
+      if (subjectId) {
+        const topicsRes = await getTopicsBySubject(subjectId)
+        const allTopics = topicsRes.data.data || []
+        setTopics(allTopics)
+        topicIds = (test.topics || [])
+          .map((name) => allTopics.find((t) => t.name === name || t.id === name)?.id)
+          .filter(Boolean) as string[]
+        if (topicIds.length) {
+          const subTopicsRes = await getSubTopicsByTopics(topicIds)
+          const allSubTopics = subTopicsRes.data.data || []
+          setSubTopics(allSubTopics)
+          subTopicIds = (test.sub_topics || [])
+            .map((name) => allSubTopics.find((s) => s.name === name || s.id === name)?.id)
             .filter(Boolean) as string[]
-          if (topicIds.length) {
-            const subTopicsRes = await getSubTopicsByTopics(topicIds)
-            const allSubTopics = subTopicsRes.data.data || []
-            setSubTopics(allSubTopics)
-            subTopicIds = (test.sub_topics || [])
-              .map((name) => allSubTopics.find((s) => s.name === name || s.id === name)?.id)
-              .filter(Boolean) as string[]
-          }
         }
-        reset({
-          name: test.name,
-          type: test.type || 'chapterwise',
-          subject: subjectId,
-          topics: topicIds,
-          sub_topics: subTopicIds,
-          difficulty: test.difficulty || 'easy',
-          correct_marks: test.correct_marks ?? 4,
-          wrong_marks: test.wrong_marks ?? -1,
-          unattempt_marks: test.unattempt_marks ?? 0,
-          total_time: test.total_time ?? 60,
-          total_marks: test.total_marks ?? 100,
-          total_questions: test.total_questions ?? 25,
-        })
+      }
+      reset({
+        name: test.name,
+        type: test.type || 'chapterwise',
+        subject: subjectId,
+        topics: topicIds,
+        sub_topics: subTopicIds,
+        difficulty: test.difficulty || 'easy',
+        correct_marks: test.correct_marks ?? 4,
+        wrong_marks: test.wrong_marks ?? -1,
+        unattempt_marks: test.unattempt_marks ?? 0,
+        total_time: test.total_time ?? 60,
+        total_marks: test.total_marks ?? 100,
+        total_questions: test.total_questions ?? 25,
       })
-      .finally(() => setLoadingTest(false))
-  }, [isEdit, id, subjects, reset, setCurrentTest])
+    }
+
+    const load = async () => {
+      const cached = store.getState().tests.byId[id]
+      const hasCache = !!cached
+
+      if (hasCache) {
+        await applyTestToForm(cached)
+        setLoadingTest(false)
+      } else {
+        setLoadingTest(true)
+      }
+
+      try {
+        const result = await dispatch(fetchTestById(id))
+        if (fetchTestById.fulfilled.match(result)) {
+          await applyTestToForm(result.payload)
+        }
+      } finally {
+        setLoadingTest(false)
+      }
+    }
+
+    load()
+  }, [isEdit, id, subjects, reset, setCurrentTest, dispatch])
 
   useEffect(() => {
     if (!selectedSubject) {
@@ -318,6 +342,7 @@ export default function CreateTestPage() {
       }
       const res = isEdit && id ? await updateTest(id, payload) : await createTest(payload)
       if (res.data.status === 'success') {
+        dispatch(upsertTest(res.data.data))
         setCurrentTest(res.data.data)
         if (goNext) navigate(`/tests/${res.data.data.id}/questions`)
         else navigate('/dashboard')
