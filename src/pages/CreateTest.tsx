@@ -77,7 +77,7 @@ function FieldText({
         fullWidth
         size="small"
         type={type}
-        placeholder={placeholder}
+        placeholder={placeholder }
         error={error}
         helperText={helperText}
         InputProps={{ readOnly }}
