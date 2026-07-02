@@ -28,7 +28,14 @@ npm run deploy   # deploy to GitHub Pages
 
 ## API & auth
 
-Development proxies `/api` to the staging backend (`vite.config.ts`).
+**Base URL:** `https://admin-moderator-backend-staging.up.railway.app/api`
+
+Configured in `src/api/client.ts` via `VITE_API_BASE_URL`:
+
+- **Development** (`.env.development`): `/api` — Vite proxy in `vite.config.ts` forwards to staging
+- **Production** (`.env.production`): full staging URL above
+
+All API functions live in `src/api/endpoints.ts` and use the shared Axios client.
 
 - Login: `POST /auth/login` with `userId` and `password`
 - JWT is stored in `localStorage` (`token`, `user`)
