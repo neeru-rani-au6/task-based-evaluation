@@ -32,8 +32,8 @@ npm run deploy   # deploy to GitHub Pages
 
 Configured in `src/api/client.ts` via `VITE_API_BASE_URL`:
 
-- **Development** (`.env.development`): `/api` — Vite proxy in `vite.config.ts` forwards to staging
-- **Production** (`.env.production`): full staging URL above
+- **Development:** `/api` — Vite proxy in `vite.config.ts` forwards to staging
+- **Netlify production:** `/api` — `netlify.toml` proxies to staging (avoids CORS)
 
 All API functions live in `src/api/endpoints.ts` and use the shared Axios client.
 
