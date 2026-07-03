@@ -1,24 +1,15 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
 import type { User } from '../../types'
+import { clearAuthSession, getAuthToken, getAuthUser, setAuthSession } from '../../utils/authStorage'
 
 interface AuthState {
   token: string | null
   user: User | null
 }
 
-const loadUser = (): User | null => {
-  const saved = localStorage.getItem('user')
-  if (!saved) return null
-  try {
-    return JSON.parse(saved) as User
-  } catch {
-    return null
-  }
-}
-
 const initialState: AuthState = {
-  token: localStorage.getItem('token'),
-  user: loadUser(),
+  token: getAuthToken(),
+  user: getAuthUser(),
 }
 
 const authSlice = createSlice({
@@ -28,14 +19,12 @@ const authSlice = createSlice({
     login: (state, action: PayloadAction<{ token: string; user: User }>) => {
       state.token = action.payload.token
       state.user = action.payload.user
-      localStorage.setItem('token', action.payload.token)
-      localStorage.setItem('user', JSON.stringify(action.payload.user))
+      setAuthSession(action.payload.token, action.payload.user)
     },
     logout: (state) => {
       state.token = null
       state.user = null
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      clearAuthSession()
     },
   },
 })

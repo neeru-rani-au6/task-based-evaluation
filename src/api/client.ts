@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearAuthSession, getAuthToken } from '../utils/authStorage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ' https://admin-moderator-backend-staging.up.railway.app/api'
 
@@ -7,7 +8,7 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -18,8 +19,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      clearAuthSession()
       window.location.href = '/login'
     }
     return Promise.reject(error)

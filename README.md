@@ -38,7 +38,7 @@ Configured in `src/api/client.ts` via `VITE_API_BASE_URL`:
 All API functions live in `src/api/endpoints.ts` and use the shared Axios client.
 
 - Login: `POST /auth/login` with `userId` and `password`
-- JWT is stored in `localStorage` (`token`, `user`)
+- JWT and user profile are stored in **cookies** (`token`, `user`)
 - All other requests send `Authorization: Bearer <token>`
 - On `401`, the user is redirected to login
 
@@ -159,7 +159,7 @@ Loads test from cache/API and questions via `fetchBulk`.
 
 | Slice | Purpose |
 |-------|---------|
-| `auth` | User and token (synced to `localStorage`) |
+| `auth` | User and token (synced to cookies) |
 | `tests` | Test list + per-id cache; `fetchTests`, `fetchTestById` |
 | `testFlow` | Current test during the create/edit flow |
 
